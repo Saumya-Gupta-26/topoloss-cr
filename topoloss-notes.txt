@@ -1,0 +1,38 @@
+cripser : cubical ripser github library
+=====
+generate .npz output and run the dummy code to see what is happening
+=====
+
+false postives (merge) or false negative (split)
+if you have instance-level segs, can use instance as a bounding box (window) within which you can compute connected components.
+==============
+
+
+loss_mode = mse
+
+topo_size = 100
+
+commenting torch.sigmoid because it was applied in the network output itself.
+
+x,y for loop is topo_size window.....not doing z because z was small for him.
+
+computePH(1-lh_patch) ---> for 0-dim topology, 1-l and l is same (since number of conn comps stays same). 1-l worked for him
+
+(n,9)
+n is number of topo structures
+dim = 0 (conn comp)
+
+if never die, so death > 1;so extract death <=1
+
+for gt, clipping to 0,1
+
+compute_dgm_force - same fn xiaoling used - matching between pred and gt
+no need to experiment with values 0.03, 0.99
+
+
+topo_cp_ref_map
+fills the map with locations of critical map (from gt, i think, need to check)
+that's why in mse loss it is used
+
+loss weight is 1000 when using mse (.mean, not .sum)
+choose weight so that all losses have similar scale.
