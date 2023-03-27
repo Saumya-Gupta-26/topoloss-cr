@@ -9,4 +9,4 @@ topoloss.py : Ali's code for 2D and 3D implementation of Topoloss using cubical 
 
 topoloss-notes.txt : Few notes by Saumya
 
-topoloss-saum.py : Extra print statements to check intermediate outputs
+topoloss-saum.py : Extra print statements // comments to check intermediate outputs
