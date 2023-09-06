@@ -1,10 +1,10 @@
 from __future__ import print_function, division
 
 import torch
-from topoloss import *
+from topoloss_saum import getTopoLoss2d, getTopoLoss3d
 import SimpleITK as sitk
 
-class TopoLossMSE(torch.nn.Module):
+class TopoLossMSE3D(torch.nn.Module):
     """Weighted Topological loss
     """
 
@@ -18,6 +18,23 @@ class TopoLossMSE(torch.nn.Module):
         for idx in range(pred.size()[0]): # batchsize=N
             for ch in range(pred.size()[1]): # n_channel=C ; See if we want to perform topoloss on all channels (multi-class), or, only on foreground (binary problem)
                 loss += getTopoLoss3d(pred[idx, ch, :, :, : ], target[idx, ch, :, :, : ], 100, 'mse') 
+        return loss
+
+
+class TopoLossMSE2D(torch.nn.Module):
+    """Weighted Topological loss
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred, target, weight_mask=None):
+        # pred.size() : [2, 1, 255, 255] # NCHW
+        loss = 0.
+
+        for idx in range(pred.size()[0]): # batchsize=N
+            for ch in range(pred.size()[1]): # n_channel=C ; See if we want to perform topoloss on all channels (multi-class), or, only on foreground (binary problem)
+                loss += getTopoLoss2d(pred[idx, ch, :, : ], target[idx, ch, :, : ], 100, 'mse') 
         return loss
 
 

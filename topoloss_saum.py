@@ -8,6 +8,8 @@
 # Modified by Saumya to test intermediate outputs
 # =============
 
+# Cubical Ripser Documentation https://github.com/shizuo-kaji/CubicalRipser_3dim 
+
 import time
 import numpy as np
 #import gudhi as gd
@@ -111,43 +113,9 @@ def compute_dgm_force(lh_dgm, gt_dgm, pers_thresh=0.03, pers_thresh_perfect=0.99
 
     return force_list, idx_holes_to_fix, idx_holes_to_remove
 
-def getCriticalPoints(likelihood):
-    """
-    Compute the critical points of the image (Value range from 0 -> 1)
-
-    Args:
-        likelihood: Likelihood image from the output of the neural networks
-
-    Returns:
-        pd_lh:  persistence diagram.
-        bcp_lh: Birth critical points.
-        dcp_lh: Death critical points.
-        Bool:   Skip the process if number of matching pairs is zero.
-
-    """
-    lh = 1 - likelihood
-    lh_vector = np.asarray(lh).flatten()
-
-    lh_cubic = gd.CubicalComplex(
-        dimensions=[lh.shape[0], lh.shape[1]],
-        top_dimensional_cells=lh_vector
-    )
-
-    Diag_lh = lh_cubic.persistence(homology_coeff_field=2, min_persistence=0)
-    pairs_lh = lh_cubic.cofaces_of_persistence_pairs()
-
-    # If the paris is 0, return False to skip
-    if (len(pairs_lh[0])==0): return 0, 0, 0, False
-
-    # return persistence diagram, birth/death critical points
-    pd_lh = numpy.array([[lh_vector[pairs_lh[0][0][i][0]], lh_vector[pairs_lh[0][0][i][1]]] for i in range(len(pairs_lh[0][0]))])
-    bcp_lh = numpy.array([[pairs_lh[0][0][i][0]//lh.shape[1], pairs_lh[0][0][i][0]%lh.shape[1]] for i in range(len(pairs_lh[0][0]))]) # [[cp_y, cp_y], ...]
-    dcp_lh = numpy.array([[pairs_lh[0][0][i][1]//lh.shape[1], pairs_lh[0][0][i][1]%lh.shape[1]] for i in range(len(pairs_lh[0][0]))])
-
-    return pd_lh, bcp_lh, dcp_lh, True
 
 # 2D
-def getTopoLoss(likelihood_tensor, gt_tensor, topo_size=100):
+def getTopoLoss2d(likelihood_tensor, gt_tensor, topo_size=100, loss_mode="mse"):
     """
     Calculate the topology loss of the predicted image and ground truth image 
     Warning: To make sure the topology loss is able to back-propagation, likelihood 
@@ -163,8 +131,12 @@ def getTopoLoss(likelihood_tensor, gt_tensor, topo_size=100):
         loss_topo        :   The topology loss value (tensor)
 
     """
-
-    likelihood = torch.sigmoid(likelihood_tensor).clone()
+    if likelihood_tensor.ndim != 2:
+        print("incorrct dimension")
+    
+    # likelihood = torch.sigmoid(likelihood_tensor).clone()
+    likelihood = likelihood_tensor.clone()
+    # likelihood = torch.softmax(torch.unsqueeze(likelihood_tensor, 0), dim=0).clone()
     gt = gt_tensor.clone()
 
     likelihood = torch.squeeze(likelihood).cpu().detach().numpy()
@@ -173,9 +145,10 @@ def getTopoLoss(likelihood_tensor, gt_tensor, topo_size=100):
     topo_cp_weight_map = np.zeros(likelihood.shape)
     topo_cp_ref_map = np.zeros(likelihood.shape)
 
+    #print("Loop y: {}; Loop x: {}".format(likelihood.shape[1]/topo_size, likelihood.shape[2]/topo_size))
     for y in range(0, likelihood.shape[0], topo_size):
         for x in range(0, likelihood.shape[1], topo_size):
-
+            #print("Loop itr (x,y) = {},{}".format(x,y))
             lh_patch = likelihood[y:min(y + topo_size, likelihood.shape[0]),
                          x:min(x + topo_size, likelihood.shape[1])]
             gt_patch = gt[y:min(y + topo_size, gt.shape[0]),
@@ -185,61 +158,113 @@ def getTopoLoss(likelihood_tensor, gt_tensor, topo_size=100):
             if(np.min(gt_patch) == 1 or np.max(gt_patch) == 0): continue
 
             # Get the critical points of predictions and ground truth
-            pd_lh, bcp_lh, dcp_lh, pairs_lh_pa = getCriticalPoints(lh_patch)
-            pd_gt, bcp_gt, dcp_gt, pairs_lh_gt = getCriticalPoints(gt_patch)
+
+            # computePH : (N, dim birth death x1 y1 z1 x2 y2 z2)
+
+            ##### IMPORTANT - SAUMYA 
+            pd_arr_lh = cr.computePH(1 - lh_patch) # flipped/negated
+            #pd_arr_lh = cr.computePH(lh_patch) 
+
+            ##### IMPORTANT - SAUMYA
+            pd_arr_lh = pd_arr_lh[pd_arr_lh[:, 0] == 0] # 0-dim topology (component) selected
+            #pd_arr_lh = pd_arr_lh[pd_arr_lh[:, 0] == 2] # 2-dim topology (component) selected
+            
+            pd_arr_lh = pd_arr_lh[pd_arr_lh[:, 2] <= 1]
+            pd_lh = pd_arr_lh[:, 1:3] # contains birth, death info
+            # pd_lh = np.clip(pd_arr_lh[:, 1:3], 0, 1)
+            
+            bcp_lh = pd_arr_lh[:, 3:6] # contains birth coordinates
+            dcp_lh = pd_arr_lh[:, 6:] # contains death coordinates
+            pairs_lh_pa = pd_arr_lh.shape[0] != 0 and pd_arr_lh is not None
+
+            ##### IMPORTANT - SAUMYA
+            pd_arr_gt = cr.computePH(1 - gt_patch) # flipped/negated
+            # pd_arr_gt = cr.computePH(gt_patch)
+            
+            ##### IMPORTANT - SAUMYA
+            pd_arr_gt = pd_arr_gt[pd_arr_gt[:, 0] == 0] # 0-dim topology (component) selected
+            #pd_arr_gt = pd_arr_gt[pd_arr_gt[:, 0] == 2] # 2-dim topology (component) selected
+            
+            # pd_arr_gt = pd_arr_gt[pd_arr_gt[:, 2] <= 1]
+            # pd_gt = pd_arr_gt[:, 1:3]
+            pd_gt = np.clip(pd_arr_gt[:, 1:3], 0, 1) # contains birth, death info
+            
+            bcp_gt = pd_arr_gt[:, 3:6] # contains birth coordinates
+            dcp_gt = pd_arr_gt[:, 6:] # contains death coordinates
+            pairs_lh_gt = pd_arr_gt.shape[0] != 0 and pd_arr_gt is not None
 
             # If the pairs not exist, continue for the next loop
             if not(pairs_lh_pa): continue
             if not(pairs_lh_gt): continue
 
-            if pd_lh.shape[0] == 0: continue
 
             force_list, idx_holes_to_fix, idx_holes_to_remove = compute_dgm_force(pd_lh, pd_gt, pers_thresh=0.03)
 
+            # For matched dots, fix by pushing birth to 0, pushing death to 1. By default 0,1 values are chosen because in binary GT birth is always 0 and death is always 1.
+            # For unmatched dots, fix by pushing to diagonal
+
             if (len(idx_holes_to_fix) > 0 or len(idx_holes_to_remove) > 0):
                 for hole_indx in idx_holes_to_fix:
-                    if (int(bcp_lh[hole_indx][0]) >= 0 and int(bcp_lh[hole_indx][0]) < likelihood.shape[0] and int(
-                            bcp_lh[hole_indx][1]) >= 0 and int(bcp_lh[hole_indx][1]) < likelihood.shape[1]):
-                        topo_cp_weight_map[y + int(bcp_lh[hole_indx][0]), x + int(
-                            bcp_lh[hole_indx][1])] = 1  # push birth to 0 i.e. min birth prob or likelihood
-                        topo_cp_ref_map[y + int(bcp_lh[hole_indx][0]), x + int(bcp_lh[hole_indx][1])] = 0
-                    if (int(dcp_lh[hole_indx][0]) >= 0 and int(dcp_lh[hole_indx][0]) < likelihood.shape[
-                        0] and int(dcp_lh[hole_indx][1]) >= 0 and int(dcp_lh[hole_indx][1]) <
-                            likelihood.shape[1]):
-                        topo_cp_weight_map[y + int(dcp_lh[hole_indx][0]), x + int(
-                            dcp_lh[hole_indx][1])] = 1  # push death to 1 i.e. max death prob or likelihood
-                        topo_cp_ref_map[y + int(dcp_lh[hole_indx][0]), x + int(dcp_lh[hole_indx][1])] = 1
+                    if (int(bcp_lh[hole_indx][0]) >= 0 and int(bcp_lh[hole_indx][0]) < likelihood.shape[0] and
+                        int(bcp_lh[hole_indx][1]) >= 0 and int(bcp_lh[hole_indx][1]) < likelihood.shape[1] and 
+                        int(bcp_lh[hole_indx][2]) >= 0 and int(bcp_lh[hole_indx][2]) < likelihood.shape[2]):
+                        topo_cp_weight_map[int(bcp_lh[hole_indx][0]), y + int(bcp_lh[hole_indx][1]), x + int(
+                            bcp_lh[hole_indx][2])] = 1  # push birth to 0 i.e. min birth prob or likelihood
+                        topo_cp_ref_map[int(bcp_lh[hole_indx][0]), y + int(bcp_lh[hole_indx][1]), x + int(bcp_lh[hole_indx][2])] = 0
+                    if (int(dcp_lh[hole_indx][0]) >= 0 and int(dcp_lh[hole_indx][0]) < likelihood.shape[0] and
+                        int(dcp_lh[hole_indx][1]) >= 0 and int(dcp_lh[hole_indx][1]) < likelihood.shape[1] and 
+                        int(dcp_lh[hole_indx][2]) >= 0 and int(dcp_lh[hole_indx][2]) < likelihood.shape[2]):
+                        topo_cp_weight_map[int(dcp_lh[hole_indx][0]), y + int(dcp_lh[hole_indx][1]), x + int(
+                            dcp_lh[hole_indx][2])] = 1  # push death to 1 i.e. max death prob or likelihood
+                        topo_cp_ref_map[int(dcp_lh[hole_indx][0]), y + int(dcp_lh[hole_indx][1]), x + int(dcp_lh[hole_indx][2])] = 1
                 for hole_indx in idx_holes_to_remove:
-                    if (int(bcp_lh[hole_indx][0]) >= 0 and int(bcp_lh[hole_indx][0]) < likelihood.shape[
-                        0] and int(bcp_lh[hole_indx][1]) >= 0 and int(bcp_lh[hole_indx][1]) <
-                            likelihood.shape[1]):
-                        topo_cp_weight_map[y + int(bcp_lh[hole_indx][0]), x + int(
-                            bcp_lh[hole_indx][1])] = 1  # push birth to death  # push to diagonal
-                        if (int(dcp_lh[hole_indx][0]) >= 0 and int(dcp_lh[hole_indx][0]) < likelihood.shape[
-                            0] and int(dcp_lh[hole_indx][1]) >= 0 and int(dcp_lh[hole_indx][1]) <
-                                likelihood.shape[1]):
-                            topo_cp_ref_map[y + int(bcp_lh[hole_indx][0]), x + int(bcp_lh[hole_indx][1])] = \
-                                likelihood[int(dcp_lh[hole_indx][0]), int(dcp_lh[hole_indx][1])]
+                    if (int(bcp_lh[hole_indx][0]) >= 0 and int(bcp_lh[hole_indx][0]) < likelihood.shape[0] and
+                        int(bcp_lh[hole_indx][1]) >= 0 and int(bcp_lh[hole_indx][1]) < likelihood.shape[1] and 
+                        int(bcp_lh[hole_indx][2]) >= 0 and int(bcp_lh[hole_indx][2]) < likelihood.shape[2]):
+                        topo_cp_weight_map[int(bcp_lh[hole_indx][0]), y + int(bcp_lh[hole_indx][1]), x + int(
+                            bcp_lh[hole_indx][2])] = 1  # push birth to death  # push to diagonal
+                        if (int(dcp_lh[hole_indx][0]) >= 0 and int(dcp_lh[hole_indx][0]) < likelihood.shape[0] and
+                            int(dcp_lh[hole_indx][1]) >= 0 and int(dcp_lh[hole_indx][1]) < likelihood.shape[1] and 
+                            int(dcp_lh[hole_indx][2]) >= 0 and int(dcp_lh[hole_indx][2]) < likelihood.shape[2]):
+                            topo_cp_ref_map[int(bcp_lh[hole_indx][0]), y + int(bcp_lh[hole_indx][1]), x + int(bcp_lh[hole_indx][2])] = \
+                                likelihood[int(dcp_lh[hole_indx][0]), int(dcp_lh[hole_indx][1]), int(dcp_lh[hole_indx][2])]
                         else:
-                            topo_cp_ref_map[y + int(bcp_lh[hole_indx][0]), x + int(bcp_lh[hole_indx][1])] = 1
-                    if (int(dcp_lh[hole_indx][0]) >= 0 and int(dcp_lh[hole_indx][0]) < likelihood.shape[
-                        0] and int(dcp_lh[hole_indx][1]) >= 0 and int(dcp_lh[hole_indx][1]) <
-                            likelihood.shape[1]):
-                        topo_cp_weight_map[y + int(dcp_lh[hole_indx][0]), x + int(
-                            dcp_lh[hole_indx][1])] = 1  # push death to birth # push to diagonal
-                        if (int(bcp_lh[hole_indx][0]) >= 0 and int(bcp_lh[hole_indx][0]) < likelihood.shape[
-                            0] and int(bcp_lh[hole_indx][1]) >= 0 and int(bcp_lh[hole_indx][1]) <
-                                likelihood.shape[1]):
-                            topo_cp_ref_map[y + int(dcp_lh[hole_indx][0]), x + int(dcp_lh[hole_indx][1])] = \
-                                likelihood[int(bcp_lh[hole_indx][0]), int(bcp_lh[hole_indx][1])]
+                            topo_cp_ref_map[int(bcp_lh[hole_indx][0]), y + int(bcp_lh[hole_indx][1]), x + int(bcp_lh[hole_indx][2])] = 1
+                    if (int(dcp_lh[hole_indx][0]) >= 0 and int(dcp_lh[hole_indx][0]) < likelihood.shape[0] and
+                        int(dcp_lh[hole_indx][1]) >= 0 and int(dcp_lh[hole_indx][1]) < likelihood.shape[1] and 
+                        int(dcp_lh[hole_indx][2]) >= 0 and int(dcp_lh[hole_indx][2]) < likelihood.shape[2]):
+                        topo_cp_weight_map[int(dcp_lh[hole_indx][0]), y + int(dcp_lh[hole_indx][1]), x + int(
+                            dcp_lh[hole_indx][2])] = 1  # push death to birth # push to diagonal
+                        if (int(bcp_lh[hole_indx][0]) >= 0 and int(bcp_lh[hole_indx][0]) < likelihood.shape[0] and
+                            int(bcp_lh[hole_indx][1]) >= 0 and int(bcp_lh[hole_indx][1]) < likelihood.shape[1] and 
+                            int(bcp_lh[hole_indx][2]) >= 0 and int(bcp_lh[hole_indx][2]) < likelihood.shape[2]):
+                            topo_cp_ref_map[int(dcp_lh[hole_indx][0]), y + int(dcp_lh[hole_indx][1]), x + int(dcp_lh[hole_indx][2])] = \
+                                likelihood[int(bcp_lh[hole_indx][0]), int(bcp_lh[hole_indx][1]), int(bcp_lh[hole_indx][2])]
                         else:
-                            topo_cp_ref_map[y + int(dcp_lh[hole_indx][0]), x + int(dcp_lh[hole_indx][1])] = 0
+                            topo_cp_ref_map[int(dcp_lh[hole_indx][0]), y + int(dcp_lh[hole_indx][1]), x + int(dcp_lh[hole_indx][2])] = 0
 
-    topo_cp_weight_map = torch.tensor(topo_cp_weight_map, dtype=torch.float).cuda()
-    topo_cp_ref_map = torch.tensor(topo_cp_ref_map, dtype=torch.float).cuda()
+
+    savefile(topo_cp_weight_map,savedir,"topo_weight_map.nii.gz")
+    savefile(topo_cp_ref_map,savedir,"topo_ref_map.nii.gz")
+
+
+    if loss_mode == 'bce_cp': indexes = np.nonzero(topo_cp_weight_map)
+    topo_cp_weight_map = torch.tensor(topo_cp_weight_map, dtype=torch.float)#.cuda()
+    topo_cp_ref_map = torch.tensor(topo_cp_ref_map, dtype=torch.float)#.cuda()
 
     # Measuring the MSE loss between predicted critical points and reference critical points
-    loss_topo = (((likelihood_tensor * topo_cp_weight_map) - topo_cp_ref_map) ** 2).sum()
+    if loss_mode == "mse":
+        # loss_topo = (((likelihood_tensor * topo_cp_weight_map) - topo_cp_ref_map) ** 2).sum() 
+        loss_topo = (((likelihood_tensor * topo_cp_weight_map) - topo_cp_ref_map) ** 2).mean() # it become too low 
+    elif loss_mode == "bce":
+        loss_topo = F.binary_cross_entropy((likelihood_tensor * topo_cp_weight_map), topo_cp_ref_map)
+    elif loss_mode == 'bce_cp':
+        if len(indexes[0]) > 0 :
+            loss_topo = F.binary_cross_entropy((likelihood_tensor * topo_cp_weight_map), topo_cp_ref_map, reduction='sum')/len(indexes[0])
+        else:
+            loss_topo = 0.0
+    else:
+        print("wrong loss mode")
     return loss_topo
 
 
