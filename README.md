@@ -1,4 +1,7 @@
-Files
+## About
+Unofficial implementation of the NeurIPS'19 paper [Topology-preserving deep image segmentation](https://proceedings.neurips.cc/paper/2019/file/2d95666e2649fcfc6e3af75e09f5adb9-Paper.pdf)
+
+## Files
 ------
 
 call.py : How to call/use Topoloss
