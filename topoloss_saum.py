@@ -10,6 +10,10 @@
 
 # Cubical Ripser Documentation https://github.com/shizuo-kaji/CubicalRipser_3dim 
 
+'''
+In this code, we are assuming the GT is a binary image. Hence the persistent dots in the GT will always be at the (0,1) location (ie birth at 0 & death at 1 = never dies). Suppose GT has N dots. Next, we sort the M dots in the likelihood in decreasing order. The dots whose persistence is higher than pers_thresh_perfect will not be penalized in the loss. Let there be A such dots. Now the remaining B = N - A dots in the likelihood will be penalized / forced to (0,1). All the remaining M-B dots in the likelihood will be forced to the diagonal. This logic is quite fast because the only time complexity is for sorting. Hence it's convenient when the GT is binary image, such as in fully-supervised scenarios. This code is good for this paper: https://proceedings.neurips.cc/paper/2019/file/2d95666e2649fcfc6e3af75e09f5adb9-Paper.pdf.
+'''
+
 import time
 import numpy as np
 #import gudhi as gd
